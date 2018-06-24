@@ -1,248 +1,239 @@
-pragma solidity ^0.4.23;
+pragma solidity ^0.4.24;
 
-import "SafeMath.sol";
-import "ERC20.sol";
-import "Ownable.sol";
+import "./SafeMath.sol";
+import "./IronxToken.sol";
+import "./TokenVesting.sol";
 
 
 
-interface token {
-    function transfer(address receiver, uint amount) external;
+/**
+ * @title Crowdsale
+ * @dev Crowdsale is a base contract for managing a token crowdsale.
+ * Crowdsales have a start and end timestamps, where investors can make
+ * token purchases and the crowdsale will assign them tokens based
+ * on a token per ETH rate. Funds collected are forwarded to a wallet
+ * as they arrive.
+ */
+contract Crowdsale {
+  using SafeMath for uint256;
+
+  struct TokenReward { 
+    uint256 time;
+    uint256 reward;
+  }
+
+  mapping(address => address) wallets;
+  mapping(address => TokenReward) tokenRewards;
+  address[] public tokenRewardReceivers;
+
+  IronxToken token;
+  uint256 public startTime;
+  uint256 public endTime;
+  uint256 public minContributionSum = 971911700000000000;
+  uint256 public rate;
+  uint256 public weiRaised;
+  address wallet;
+
+  /**
+   * event for token purchase logging
+   * @param purchaser who paid for the tokens
+   * @param beneficiary who got the tokens
+   * @param value weis paid for purchase
+   * @param amount amount of tokens purchased
+   */
+  event TokenPurchase(
+    address indexed purchaser, 
+    address indexed beneficiary, 
+    uint256 value, 
+    uint256 amount);
+
+  event Created(
+    address indexed wallet, 
+    address indexed from, 
+    address indexed to,
+    uint256 tokens, 
+    uint256 start, 
+    uint256 cliff, 
+    uint256 duration);
+
+  modifier respectContribution() {
+    require(msg.value > minContributionSum);
+    _;
+  }
+
+  function getCountRewardReceivers() public constant returns(uint count) {
+    return tokenRewardReceivers.length;
+  }
+
+  function getWallets(address _user) 
+    public
+    view 
+    returns(address) {
+      return wallets[_user];
+  }
+
+  function newTimeLockedWallet( 
+    address _owner, 
+    uint256 _tokens,
+    uint256 _start, 
+    uint256 _cliff, 
+    uint256 _duration 
+  ) 
+    payable
+    public
+    returns(address _wallet) 
+  {
+
+      _wallet = new TokenVesting(msg.sender, _owner, _start, _cliff, _duration, false);
+
+      if (msg.sender != _owner) {
+        wallets[_owner] = _wallet;
+      }
+
+      _wallet.transfer(_tokens);
+
+      wallets[msg.sender] = _wallet;
+
+      emit Created(_wallet, msg.sender, _owner, _tokens, _start, _cliff, _duration);
+  }
+
+  constructor (
+    IronxToken _token,
+    uint256 _startTime,
+    uint256 _endTime,
+    uint256 _rate, 
+    address _wallet
+  ) 
+    public 
+  {
+    require(_startTime >= now);
+    require(_endTime >= _startTime);
+    require(_rate > 0);
+    require(_wallet != address(0));
+
+    token = _token;
+    startTime = _startTime;
+    endTime = _endTime;
+    rate = _rate;
+    wallet = _wallet;
+  }
+
+
+
+  // fallback function can be used to buy tokens
+  function () 
+    external 
+    payable
+    respectContribution() 
+  {
+    buyTokens(msg.sender);
+    giveReward();
+  }
+
+  function giveReward() internal returns (bool) {
+    for (uint256 i = 0; i < getCountRewardReceivers(); i++) {
+      if(tokenRewards[tokenRewardReceivers[i]].time < now) {
+        wallets[tokenRewardReceivers[i]].transfer(tokenRewards[tokenRewardReceivers[i]].reward);
+      }
+    }
+    return true;
+  }
+
+  function _establishReward(address tokenReceiver, uint256 amount) internal returns (uint256 purchasedAmount) {
+    TokenReward memory _tokenReward;
+    if (amount > 971911700000000000 && amount < 291573500000000000000) {
+        purchasedAmount = amount + SafeMath.percent(amount, 5, 3);
+    }
+    if (amount > 291573500000000000000 && amount < 485955800000000000000) {
+        purchasedAmount = amount + SafeMath.percent(amount, 10, 3);
+    }
+    if (amount > 485955800000000000000 && amount < 971911700000000000000) {
+        purchasedAmount = amount + SafeMath.percent(amount, 15, 3);
+    }
+    if (amount > 971911700000000000000 && amount < 1943823500000000000000) {
+        purchasedAmount = amount + SafeMath.percent(amount, 20, 3);
+        _tokenReward.reward = uint256(1000000000000000000).mul(rate);
+        _tokenReward.time = block.timestamp + 31556926;
+        tokenRewardReceivers.push(tokenReceiver);
+        tokenRewards[tokenReceiver] = _tokenReward;
+    }
+    if (amount > 1943823500000000000000) {
+        purchasedAmount = amount + SafeMath.percent(amount, 30, 3);
+        _tokenReward.reward = uint256(2000000000000000000).mul(rate);
+        _tokenReward.time = block.timestamp + 31556926;
+        tokenRewardReceivers.push(tokenReceiver);
+        tokenRewards[tokenReceiver] = _tokenReward;
+    }
+  }
+
+
+
+  // low level token purchase function
+  function buyTokens
+  (
+    address beneficiary
+  ) 
+    public 
+    payable 
+  {
+    require(beneficiary != address(0));
+    require(validPurchase());
+
+    uint256 weiAmount = msg.value;
+
+    // calculate token amount to be created
+    uint256 tokens = _establishReward(msg.sender, weiAmount.mul(rate));
+
+    // update state
+    weiRaised = weiRaised.add(weiAmount);
+
+    uint256 _start = now;
+    uint256 _cliff = _start.add(uint256(23667695)); 
+    uint256 _duration = 31556926;
+
+    newTimeLockedWallet(beneficiary, tokens, _start, _cliff, _duration);
+    
+    emit TokenPurchase(msg.sender, beneficiary, weiAmount, tokens);
+  }
+
+  // @return true if the transaction can buy tokens
+  function validPurchase() 
+    internal 
+    view 
+    returns (bool) 
+  {
+    bool withinPeriod = now >= startTime && now <= endTime;
+    bool nonZeroPurchase = msg.value != 0;
+    return withinPeriod && nonZeroPurchase;
+  }
+
+  // @return true if crowdsale event has ended
+  function hasEnded() 
+    public 
+    view 
+    returns (bool) 
+  {
+    return now > endTime;
+  }
 }
 
-interface SchedulerAPI {
-    function scheduleCall(address contractAddress,
-                          bytes4 abiSignature,
-                          uint targetBlock) external returns (address);
-}
 
-contract Crowdsale is Ownable {
-    // address constant Scheduler = SchedulerAPI(0x6c8f2a135f6ed072de4503bd7c4999a1a17f824b);
-    address public beneficiary;
-    uint public fundingGoal;
-    uint public amountRaised;
-    uint public deadline;
-    uint public price;
-    token public tokenReward;
-    uint private latestBonusReceiverIndex = 0;
-    
-    
-    struct Order {
-        address owner;
-        uint256 amount;
-        uint256 lockup;
-        bool claimed;
-    }
-    
-    struct BonusTokenReceiver {
-        address receiver;
-        uint256 value;
-    }
-    
-    mapping(uint256 => Order) private orders;
-    mapping(address => uint256) public balanceOf;
-    
-    
-    mapping (address => BonusTokenReceiver) bonusTokenReceivers;
-    mapping (uint256 => address) bonusTokenReceiversIndex;
-    
-    uint256 private latestOrderId = 0;
-    bool public fundingGoalReached = false;
-    bool public crowdsaleClosed = false;
-    bool public crowdsaleStarted = false;
-    
-    uint256 public hardCap;
-    uint256 public softCap;
+contract IronxCrowdsale is Crowdsale {
 
-    event Activated(uint256 time);
-    event Finished(uint256 time);
-    event Purchase(address indexed purchaser, uint256 id, uint256 amount, uint256 purchasedAt, uint256 redeemAt);
-    event Claim(address indexed purchaser, uint256 id, uint256 amount);
-    event GoalReached(address recipient, uint totalAmountRaised);
-    event FundTransfer(address backer, uint amount, bool isContribution);
+  IronxToken public TOKEN;
+  uint256 public START_TIME = 1529928000;
+  uint256 public END_TIME = 1561464000;
+  uint256 public RATE = 33;
+  address public BENEFICIARY_WALLET;
 
-    /**
-     * Constructor function
-     *
-     * Setup the owner
-     */
-    constructor (
-        address ifSuccessfulSendTo,
-        uint fundingGoalInEthers,
-        uint durationInMinutes,
-        uint etherCostOfEachToken,
-        address addressOfTokenUsedAsReward,
-        uint256 presaleHardCap,
-        uint256 presaleSoftCap
-    ) public {
-        beneficiary = ifSuccessfulSendTo;
-        fundingGoal = fundingGoalInEthers * 1 ether;
-        deadline = now + durationInMinutes * 1 minutes;
-        price = etherCostOfEachToken * 1 ether;
-        tokenReward = token(addressOfTokenUsedAsReward);
-        hardCap = presaleHardCap;
-        softCap = presaleSoftCap;
-    }
-
-    /**
-     * Fallback function
-     *
-     * The function without name is the default function that is called whenever anyone sends funds to a contract
-     */
-    function () payable public {
-        require(!crowdsaleStarted && !crowdsaleClosed);
-        uint amount = msg.value;
-        balanceOf[msg.sender] += amount;
-        amountRaised += amount;
-        tokenReward.transfer(msg.sender, amount / price);
-        emit FundTransfer(msg.sender, amount, true);
-        
-        if (now > deadline) {
-            giveBonus();
-        }
-    }
-
-    function _establishReward(address receiver, uint256 amount) internal returns (uint256) {
-        uint256 purchasedAmount = 0;
-        if (amount > 971911700000000000 && amount < 291573500000000000000) {
-            purchasedAmount = amount + SafeMath.percent(amount, 5, 3);
-        }
-        if (amount > 291573500000000000000 && amount < 485955800000000000000) {
-            purchasedAmount = amount + SafeMath.percent(amount, 10, 3);
-        }
-        if (amount > 485955800000000000000 && amount < 971911700000000000000) {
-            purchasedAmount = amount + SafeMath.percent(amount, 15, 3);
-        }
-        if (amount > 971911700000000000000 && amount < 1943823500000000000000) {
-            purchasedAmount = amount + SafeMath.percent(amount, 20, 3);
-            bonusTokenReceivers[receiver] = BonusTokenReceiver(receiver, 1);
-            ++latestBonusReceiverIndex;
-            bonusTokenReceiversIndex[latestBonusReceiverIndex] = receiver; 
-        }
-        if (amount > 1943823500000000000000) {
-            purchasedAmount = amount + SafeMath.percent(amount, 30, 3);
-            bonusTokenReceivers[receiver] = BonusTokenReceiver(receiver, 2);
-            ++latestBonusReceiverIndex;
-            bonusTokenReceiversIndex[latestBonusReceiverIndex] = receiver;
-        }
-        return purchasedAmount;
-    }
-    
-    function processPurchase(address _investor, uint256 _value, uint256 lockup) private {
-        if (!crowdsaleStarted) { revert(); }
-        if (msg.value == 0) { revert(); }
-        ++latestOrderId;
-    
-        uint256 purchasedAmount = _establishReward(_investor, _value);
-        if (purchasedAmount == 0) { revert(); } // not enough ETH sent
-        if (purchasedAmount > hardCap - amountRaised) { revert(); } // too much ETH sent
-    
-        orders[latestOrderId] = Order(msg.sender, purchasedAmount, lockup, false);
-        amountRaised += purchasedAmount;
-    
-        beneficiary.transfer(msg.value);
-        emit Purchase(msg.sender, latestOrderId, purchasedAmount, now, lockup);
-    }
-
-    
-    function invest() public payable {
-        uint256 lockup = now + 39 weeks;
-        processPurchase(msg.sender, msg.value, lockup);
-        
-        if (amountRaised > 10214504590000000000000) {
-            
-        }
-    }
-    
-    
-    function giveBonus() {
-        for(uint i = 0; i < latestBonusReceiverIndex; i++) {
-            balanceOf[bonusTokenReceiversIndex[i]] += bonusTokenReceivers[bonusTokenReceiversIndex[i]].value;
-        }       
-    }
-
-    
-    function start() public {
-        require(msg.sender == beneficiary);
-        require(!crowdsaleStarted);
-        crowdsaleStarted = true;
-        emit Activated(now);
-    }
-
-    modifier afterDeadline() { if (now >= deadline) _; }
-
-    function checkGoalReached() public afterDeadline {
-        if (amountRaised >= fundingGoal){
-            fundingGoalReached = true;
-            emit GoalReached(beneficiary, amountRaised);
-        }
-        crowdsaleClosed = true;
-    }
-    
-    function amountOf(uint256 orderId) constant public returns (uint256 amount) {
-        return orders[orderId].amount;
-    }
-    
-    function lockupOf(uint256 orderId) constant public returns (uint256 timestamp) {
-        return orders[orderId].lockup;
-    }
-    
-    function ownerOf(uint256 orderId) constant public returns (address orderOwner) {
-        return orders[orderId].owner;
-    }
-    
-    function isClaimed(uint256 orderId) constant public returns (bool claimed) {
-        return orders[orderId].claimed;
-    }
-    
-    function redeem(uint256 orderId) public {
-        if (orderId > latestOrderId) { revert(); }
-        Order storage order = orders[orderId];
-        
-        if (msg.sender != order.owner) { revert(); }
-        if (now < order.lockup) { revert(); }
-        if (order.claimed) { revert(); }
-        require(whiteList[order.owner]);
-        order.claimed = true;
-        
-        balanceOf[msg.sender] = order.amount;
-        emit Claim(order.owner, orderId, order.amount);
-    }
-
-    /**
-     * @dev Reverts if beneficiary is not whitelisted
-     */
-    modifier isWhiteListed(address _beneficiary) {
-        require(whiteList[_beneficiary]);
-        _;
-    }
-
-
-    /**
-     * @dev Adds single address to whitelist
-     * @param _beneficiary Address to be added to the whitelist
-     */
-    function addToWhitelist(address _beneficiary) external onlyOwner {
-        whiteList[_beneficiary] = true;
-    }
-
-
-    /**
-     * @dev Adds list of addresses to whitelist
-     * @param _beneficiaries Addresses to be added to the whitelist
-     */
-    function addManyToWhitelist(address[] _beneficiaries) external onlyOwner {
-        for (uint256 i = 0; i < _beneficiaries.length; i++) {
-            whiteList[_beneficiaries[i]] = true;
-        }
-    }
-
-
-    /**
-     * @dev Removes single address from whitelist
-     * @param _beneficiary Address to be removed from the whitelist
-     */
-    function removeFromWhitelist(address _beneficiary) external onlyOwner {
-        whiteList[_beneficiary] = false;
-    }
+  /**
+  * @dev IronxCrowdsale constructor
+  */
+  constructor(
+    IronxToken _token,
+    address _wallet  
+  ) public Crowdsale(_token, START_TIME, END_TIME, RATE, _wallet) {
+    TOKEN = _token;
+    BENEFICIARY_WALLET = _wallet;
+  }
 }
