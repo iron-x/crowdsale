@@ -5,20 +5,23 @@
 1. `git clone https://github.com/iron-x/crowdsale.git`
 2. `git checkout develop`
 3. `npm install` or `npm i`
-4. `truffle compile`
+4. `truffle compile` 
+5. `truffle test`
 
 ## Smart-contracts description
 
-### IronxToken 
+### Token 
 
 * ERC-20 compatible token
 * Has fixed supply of tokens
 * Allow to increase or decrease amount of approval tokens
 
-### IronxCrowdsale
+### Crowdsale
 
-* Time-dependent crowdsale with bonuses depending on contribution sum
+* Time-dependent crowdsale with bonus structure
 * Vesting and cliff features
+* Provide most active contributors with annualy rewards
+* Manage the token vesting process
 
 ### TokenVesting
 
