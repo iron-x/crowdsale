@@ -11,10 +11,20 @@ require('chai')
   .use(require('chai-bignumber')(BigNumber))
   .should();
 
-const IronxCrowdsale = artifacts.require('IronxCrowdsale');
-const IronxToken = artifacts.require('IronxToken');
+const Crowdsale = artifacts.require('Crowdsale');
+const Token = artifacts.require('Token');
 
-contract('IronxCrowdsale', function ([owner, wallet, investor, otherInvestor]) {
+contract('Crowdsale', function ([owner, wallet, investor, otherInvestor]) {
+  const totalSupply = new BigNumber(1000);
+  const decimals = new BigNumber(18);
+  const name = "IronX";
+  const symbol = "IRX";
+
+  const RATE = new BigNumber(10);
+
+  const SoftCAP = ether(20);
+  const HardCAP = ether(200);
+  
 
   before(async function () {
     // Advance to the next block to correctly read time in the solidity "now" function interpreted by testrpc
@@ -22,35 +32,28 @@ contract('IronxCrowdsale', function ([owner, wallet, investor, otherInvestor]) {
   });
 
   beforeEach(async function () {
-    this.token = await IronxToken.new();
-    this.crowdsale = IronxCrowdsale.at(this.token, wallet);
+    this.startTime = latestTime() + duration.weeks(1);
+    this.endTime = this.startTime + duration.weeks(1);
+    this.afterEndTime = this.endTime + duration.seconds(1);
+
+    this.token = await Token.new(totalSupply, decimals, name, symbol);
+    
+    this.crowdsale = await Crowdsale.new(RATE, wallet, this.token.address, SoftCAP, HardCAP, this.startTime, this.endTime);
   });
 
-
-
-  it('should create crowdsale with correct parameters', async function () {
-    // this.crowdsale.should.exist;
-    // this.token.should.exist;
-
-
-
-
-    // const startTime = await this.crowdsale.startTime();
-    // const endTime = await this.crowdsale.endTime();
-    // const rate = await this.crowdsale.rate();
+  it('should create token with correct parameters', async function () {
+    this.token.should.exist;
+    //this.crowdsale.should.exist;
     
-    // const cap = await this.crowdsale.cap();
+    const totalSupply_ = await this.token.totalSupply();
+    const decimals_ = await this.token.decimals();
+    const name_ = await this.token.name();
+    const symbol_ = await this.token.symbol();
 
-
-    console.log(walletAddress);
-    console.log(tokenAddress);
-
-    // startTime.should.be.bignumber.equal(this.startTime);
-    // endTime.should.be.bignumber.equal(this.endTime);
-    // rate.should.be.bignumber.equal(RATE);
-    tokenAddress.should.be.equal(this.token);
-    walletAddress.should.be.equal(wallet);
-    // cap.should.be.bignumber.equal(CAP);
+    totalSupply_.should.be.bignumber.equal(totalSupply);
+    decimals_.should.be.bignumber.equal(decimals);
+    name_.should.be.equal(name);
+    symbol_.should.be.equal(symbol);
   });
 
   // it('should not accept payments before start', async function () {
