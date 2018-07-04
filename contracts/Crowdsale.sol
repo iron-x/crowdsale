@@ -32,12 +32,19 @@ contract Crowdsale is Whitelist {
   mapping (address => TokenVesting) public vesting;
   mapping (address => RewardReceiver) public rewardReceivers;
   
+
+  /**
+   *  Variables for bonus program
+   */
   uint256 public USD_50K = 971911700000000000;
   uint256 public USD_150K = 291573500000000000000;
   uint256 public USD_250K = 485955800000000000000;
   uint256 public USD_500K = 971911700000000000000;
   uint256 public USD_1KK = 1943823500000000000000;
 
+  /**
+   * Variables for setup vesting period
+   */
   uint256 public PERIOD_1Y = 31556926; 
   uint256 public PERIOD_9M = 23667695;
   uint256 public PERIOD_3M = 7889231;
@@ -133,8 +140,9 @@ contract Crowdsale is Whitelist {
     external 
     payable 
   {
-    buyTokens(msg.sender, msg.value);
+    buyTokens(msg.sender);
   }
+
 
   /**
    * @dev check if soft cap reached
@@ -149,41 +157,54 @@ contract Crowdsale is Whitelist {
    */
   modifier hardCapNotReached() {
     require(
-      weiRaised < hardCap,
+      weiRaised <= hardCap,
       "Hard cap is reached"
     );
     _;
   }
 
-
+  /**
+   *  @dev check if address is token reward receiver
+   */
   modifier isRewardReceiver(address _receiver) {
     require(tokenRewards[_receiver] > 0);
     _;
   }
 
 
+  /**
+   *  @dev check if value respects crowdsale minimal contribution sum
+   */
   modifier respectContribution() {
-    require(msg.value >= USD_50K);
+    require(
+      msg.value >= USD_50K,
+      "Minimum contribution is $50,000"
+    );
     _;
   }
 
 
+  /**
+   * @dev check if crowdsale is still open
+   */
   modifier onlyWhileOpen {
-    require(block.timestamp >= startTime && block.timestamp <= endTime && !isFinalized);
+    require(
+      block.timestamp >= startTime && block.timestamp <= endTime && !isFinalized,
+      "Crowdsale is closed"
+    );
     _;
   }
+
 
   /**
    * @dev low level token purchase ***DO NOT OVERRIDE***
    * @param _beneficiary Address performing the token purchase
-   * @param _amount Number
    */
-  function buyTokens(address _beneficiary, uint256 _amount) 
+  function buyTokens(address _beneficiary) 
    public 
-   payable 
-   hardCapNotReached // ??
+   payable
   {
-    uint256 weiAmount = _amount;
+    uint256 weiAmount = msg.value;
     _preValidatePurchase(_beneficiary, weiAmount);
 
     // calculate token amount to be created
@@ -206,6 +227,7 @@ contract Crowdsale is Whitelist {
     //_postValidatePurchase(_beneficiary, weiAmount);
   }
 
+
   // -----------------------------------------
   // Internal interface (extensible)
   // -----------------------------------------
@@ -220,7 +242,7 @@ contract Crowdsale is Whitelist {
   )
     onlyIfWhitelisted(_beneficiary)
     onlyWhileOpen
-    hardCapNotReached // ??
+    hardCapNotReached
     view
     internal
   {
@@ -250,22 +272,21 @@ contract Crowdsale is Whitelist {
    * @dev Create vesting contract
    * @param _beneficiary address of person who will get all tokens as vesting ends
    * @param _tokens amount of vested tokens
-   * @param _cliff duration of cliff period
-   * @param _duration total vesting period duration 
    */
   function createTimeBasedVesting
   (
     address _beneficiary,
-    uint256 _tokens,
-    uint256 _cliff,
-    uint256 _duration
+    uint256 _tokens
   )
-    public
+    internal
   {
     require(_beneficiary != 0x0);
     require(_tokens > 0);
 
     uint256 _start = block.timestamp;
+    uint256 _duration = _start.add(PERIOD_1Y);
+    uint256 _cliff = PERIOD_3M;
+
     vesting[_beneficiary] = new TokenVesting(_beneficiary, _start, _cliff, _duration, false);
 
     token.safeTransfer(vesting[_beneficiary], _tokens);
@@ -325,9 +346,13 @@ contract Crowdsale is Whitelist {
   }
 
 
+  /**
+   *  @dev checks if crowdsale is closed
+   */
   function hasClosed() public view returns (bool) {
     return block.timestamp > endTime;
   }
+
 
   /** 
    * @dev Release tokens from vesting contract
@@ -359,9 +384,11 @@ contract Crowdsale is Whitelist {
   )
     internal
   {
-    uint256 _tokenBonus = tokenRewards[_beneficiary];
-    addRewardReceiver(_beneficiary, _tokenBonus);
-    token.safeTransfer(_beneficiary, _tokenAmount);
+    if (tokenRewards[_beneficiary] > 0) {
+      uint256 _tokenBonus = tokenRewards[_beneficiary];
+      addRewardReceiver(_beneficiary, _tokenBonus);
+    }
+    createTimeBasedVesting(_beneficiary, _tokenAmount);
   }
 
 
@@ -426,6 +453,7 @@ contract Crowdsale is Whitelist {
       purchasedAmount = _weiAmount + _weiAmount.perc(30, 3);
       tokenRewards[_beneficiary] = 2;
     }
+    return purchasedAmount;
   }
 
 
