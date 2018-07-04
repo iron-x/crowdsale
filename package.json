@@ -12,6 +12,7 @@
   "author": "Santiago Palladino <santiago@zeppelin.solutions>",
   "license": "MIT",
   "dependencies": {
+    "zeppelin-solidity": "^1.6.0",
     "openzeppelin-solidity": "1.10.0"
   },
   "devDependencies": {

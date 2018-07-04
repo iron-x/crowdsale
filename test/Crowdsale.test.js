@@ -20,7 +20,7 @@ contract('Crowdsale', function ([owner, wallet, investor, otherInvestor]) {
   const name = "IronX";
   const symbol = "IRX";
 
-  const RATE = new BigNumber(10);
+  const rate = new BigNumber(10);
 
   const SoftCAP = ether(20);
   const HardCAP = ether(200);
@@ -37,33 +37,49 @@ contract('Crowdsale', function ([owner, wallet, investor, otherInvestor]) {
     this.afterEndTime = this.endTime + duration.seconds(1);
 
     this.token = await Token.new(totalSupply, decimals, name, symbol);
-    
-    this.crowdsale = await Crowdsale.new(RATE, wallet, this.token.address, SoftCAP, HardCAP, this.startTime, this.endTime);
+    this.crowdsale = await Crowdsale.new(rate, wallet, this.token.address, SoftCAP, HardCAP, this.startTime, this.endTime);
   });
 
   it('should create token with correct parameters', async function () {
     this.token.should.exist;
-    //this.crowdsale.should.exist;
+    this.crowdsale.should.exist;
     
     const totalSupply_ = await this.token.totalSupply();
     const decimals_ = await this.token.decimals();
     const name_ = await this.token.name();
     const symbol_ = await this.token.symbol();
 
+    const rate_ = await this.crowdsale.rate();
+    const wallet_ = await this.crowdsale.wallet();
+    const token_ = await this.crowdsale.token();
+    const softCAP_ = await this.crowdsale.softCap();
+    const hardCAP_ = await this.crowdsale.hardCap();
+    const startTime_ = await this.crowdsale.startTime();
+    const endTime_ = await this.crowdsale.endTime();
+
     totalSupply_.should.be.bignumber.equal(totalSupply);
     decimals_.should.be.bignumber.equal(decimals);
     name_.should.be.equal(name);
     symbol_.should.be.equal(symbol);
+
+    rate_.should.be.bignumber.equal(rate);
+    wallet_.should.be.bignumber.equal(wallet);
+    token_.should.be.equal(this.token.address);
+    softCAP_.should.be.bignumber.equal(SoftCAP);
+    hardCAP_.should.be.bignumber.equal(HardCAP);
+    startTime_.should.be.bignumber.equal(this.startTime);
+    endTime_.should.be.bignumber.equal(this.endTime);
   });
 
-  // it('should not accept payments before start', async function () {
-  //   await this.crowdsale.send(ether(1)).should.be.rejectedWith(EVMRevert);
-  //   await this.crowdsale.buyTokens(investor, { from: investor, value: ether(1) }).should.be.rejectedWith(EVMRevert);
-  // });
+  it('should not accept payments before start', async function () {
+    await this.crowdsale.send(ether(1)).should.be.rejectedWith(EVMRevert);
+    await this.crowdsale.buyTokens(investor, { from: investor, value: ether(1) }).should.be.rejectedWith(EVMRevert);
+  });
+
 
   // it('should accept payments during the sale', async function () {
   //   const investmentAmount = ether(1);
-  //   const expectedTokenAmount = RATE.mul(investmentAmount);
+  //   const expectedTokenAmount = rate.mul(investmentAmount);
 
   //   await increaseTimeTo(this.startTime);
   //   await this.crowdsale.buyTokens(investor, { value: investmentAmount, from: investor }).should.be.fulfilled;
@@ -87,8 +103,8 @@ contract('Crowdsale', function ([owner, wallet, investor, otherInvestor]) {
   // it.skip('should grant an extra 10% tokens as bonus for contributions over 5 ETH', async function () {
   //   const investmentAmount = ether(1);
   //   const largeInvestmentAmount = ether(10);
-  //   const expectedTokenAmount = RATE.mul(investmentAmount);
-  //   const expectedLargeTokenAmount = RATE.mul(largeInvestmentAmount).mul(1.1);
+  //   const expectedTokenAmount = rate.mul(investmentAmount);
+  //   const expectedLargeTokenAmount = rate.mul(largeInvestmentAmount).mul(1.1);
 
   //   await increaseTimeTo(this.startTime);
   //   await this.crowdsale.buyTokens(investor, { value: investmentAmount, from: investor }).should.be.fulfilled;
@@ -113,7 +129,7 @@ contract('Crowdsale', function ([owner, wallet, investor, otherInvestor]) {
 
   // it.skip('should only allow whitelisted users to participate', async function () {
   //   const investmentAmount = ether(1);
-  //   const expectedTokenAmount = RATE.mul(investmentAmount);
+  //   const expectedTokenAmount = rate.mul(investmentAmount);
 
   //   // Requires implementing a whitelist(address) public function in the MyCrowdsale contract
   //   await this.crowdsale.whitelist(investor, { from: owner });

@@ -49,11 +49,10 @@ contract Crowdsale is Whitelist {
   address public wallet;
   uint256 public rate;
   uint256 public weiRaised;
-  uint256 public hardCap;
   uint256 public softCap;
+  uint256 public hardCap;
   uint256 public startTime;
   uint256 public endTime;
-
 
   /**
    * Event for token purchase logging
@@ -69,9 +68,7 @@ contract Crowdsale is Whitelist {
     uint256 amount
   );
 
-
   event Finalized();
-
 
   /**
    * Event for creation of token vesting contract
@@ -114,6 +111,7 @@ contract Crowdsale is Whitelist {
     require(_softCap > 0);
     require(_startTime > 0);
     require(_endTime > _startTime);
+    require(_hardCap > _softCap);
 
     rate = _rate;
     wallet = _wallet;
@@ -170,25 +168,20 @@ contract Crowdsale is Whitelist {
   }
 
 
-  function hasClosed() public view returns (bool) {
-    return block.timestamp > endTime;
-  }
-
-
   modifier onlyWhileOpen {
-    require(block.timestamp >= startTime);
+    require(block.timestamp >= startTime && block.timestamp <= endTime && !isFinalized);
     _;
   }
-
 
   /**
    * @dev low level token purchase ***DO NOT OVERRIDE***
    * @param _beneficiary Address performing the token purchase
+   * @param _amount Number
    */
-  function buyTokens(address _beneficiary, uint256 _amount)
+  function buyTokens(address _beneficiary, uint256 _amount) 
    public 
    payable 
-   hardCapNotReached
+   hardCapNotReached // ??
   {
     uint256 weiAmount = _amount;
     _preValidatePurchase(_beneficiary, weiAmount);
@@ -213,7 +206,6 @@ contract Crowdsale is Whitelist {
     //_postValidatePurchase(_beneficiary, weiAmount);
   }
 
-
   // -----------------------------------------
   // Internal interface (extensible)
   // -----------------------------------------
@@ -228,6 +220,7 @@ contract Crowdsale is Whitelist {
   )
     onlyIfWhitelisted(_beneficiary)
     onlyWhileOpen
+    hardCapNotReached // ??
     view
     internal
   {
@@ -267,6 +260,7 @@ contract Crowdsale is Whitelist {
     uint256 _cliff,
     uint256 _duration
   )
+    public
   {
     require(_beneficiary != 0x0);
     require(_tokens > 0);
@@ -330,6 +324,10 @@ contract Crowdsale is Whitelist {
     return _rewardToTransfer;
   }
 
+
+  function hasClosed() public view returns (bool) {
+    return block.timestamp > endTime;
+  }
 
   /** 
    * @dev Release tokens from vesting contract
