@@ -34,7 +34,9 @@ contract Crowdsale is Whitelist {
   
 
   /**
-   *  Variables for bonus program
+   * Variables for bonus program
+   * ============================
+   * Variables values are test!!!
    */
   uint256 public USD_50K = 971911700000000000;
   uint256 public USD_150K = 291573500000000000000;
