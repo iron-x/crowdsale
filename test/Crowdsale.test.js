@@ -3,6 +3,7 @@ import { advanceBlock } from './helpers/advanceToBlock';
 import { increaseTimeTo, duration } from './helpers/increaseTime';
 import latestTime from './helpers/latestTime';
 import EVMRevert from './helpers/EVMRevert';
+import assertRevert from './helpers/assertRevert';
 
 const BigNumber = web3.BigNumber;
 
@@ -15,15 +16,15 @@ const Crowdsale = artifacts.require('Crowdsale');
 const Token = artifacts.require('Token');
 
 contract('Crowdsale', function ([owner, wallet, investor, otherInvestor]) {
-  const totalSupply = new BigNumber(1000);
+  const totalSupply = new BigNumber(50000000000000000000000);
   const decimals = new BigNumber(18);
   const name = "IronX";
   const symbol = "IRX";
 
-  const rate = new BigNumber(10);
+  const rate = new BigNumber(33);
 
-  const SoftCAP = ether(20);
-  const HardCAP = ether(200);
+  const softCap = ether(200);
+  const hardCap = ether(40000);
   
 
   before(async function () {
@@ -36,11 +37,13 @@ contract('Crowdsale', function ([owner, wallet, investor, otherInvestor]) {
     this.endTime = this.startTime + duration.weeks(1);
     this.afterEndTime = this.endTime + duration.seconds(1);
 
-    this.token = await Token.new(totalSupply, decimals, name, symbol);
-    this.crowdsale = await Crowdsale.new(rate, wallet, this.token.address, SoftCAP, HardCAP, this.startTime, this.endTime);
+    this.token = await Token.new(totalSupply, decimals, name, symbol, { from: owner });
+    this.crowdsale = await Crowdsale.new(rate, wallet, this.token.address, softCap, hardCap, this.startTime, this.endTime);
+
+    await this.token.transferOwnership(this.crowdsale.address);
   });
 
-  it('should create token with correct parameters', async function () {
+  it('Should create token & crowdsale with correct parameters', async function () {
     this.token.should.exist;
     this.crowdsale.should.exist;
     
@@ -52,8 +55,8 @@ contract('Crowdsale', function ([owner, wallet, investor, otherInvestor]) {
     const rate_ = await this.crowdsale.rate();
     const wallet_ = await this.crowdsale.wallet();
     const token_ = await this.crowdsale.token();
-    const softCAP_ = await this.crowdsale.softCap();
-    const hardCAP_ = await this.crowdsale.hardCap();
+    const softCap_ = await this.crowdsale.softCap();
+    const hardCap_ = await this.crowdsale.hardCap();
     const startTime_ = await this.crowdsale.startTime();
     const endTime_ = await this.crowdsale.endTime();
 
@@ -65,35 +68,49 @@ contract('Crowdsale', function ([owner, wallet, investor, otherInvestor]) {
     rate_.should.be.bignumber.equal(rate);
     wallet_.should.be.bignumber.equal(wallet);
     token_.should.be.equal(this.token.address);
-    softCAP_.should.be.bignumber.equal(SoftCAP);
-    hardCAP_.should.be.bignumber.equal(HardCAP);
+    softCap_.should.be.bignumber.equal(softCap);
+    hardCap_.should.be.bignumber.equal(hardCap);
     startTime_.should.be.bignumber.equal(this.startTime);
     endTime_.should.be.bignumber.equal(this.endTime);
   });
 
-  it('should not accept payments before start', async function () {
-    await this.crowdsale.send(ether(1)).should.be.rejectedWith(EVMRevert);
-    await this.crowdsale.buyTokens(investor, { from: investor, value: ether(1) }).should.be.rejectedWith(EVMRevert);
+  it('Should not accept payments before start', async function () {
+    const investmentAmount = ether(1);
+    await this.crowdsale.send(investmentAmount).should.be.rejectedWith(EVMRevert);
+    await this.crowdsale.buyTokens(investor, {value: investmentAmount, from: investor}).should.be.rejectedWith(EVMRevert);
   });
 
+  it('Should reject payments after end', async function () {
+    const investmentAmount = ether(1);
+    await increaseTimeTo(this.afterEndTime);
+    await this.crowdsale.send(investmentAmount).should.be.rejectedWith(EVMRevert);
+    await this.crowdsale.buyTokens(investor, {value: investmentAmount, from: investor}).should.be.rejectedWith(EVMRevert);
+  });
 
-  // it('should accept payments during the sale', async function () {
-  //   const investmentAmount = ether(1);
+  it('Should reject payments if contribution is < $50k', async function () {
+    const investmentAmount = ether(0.1);
+    await increaseTimeTo(this.startTime);
+    await this.crowdsale.send(investmentAmount).should.be.rejectedWith(EVMRevert);
+    await this.crowdsale.buyTokens(investor, {value: investmentAmount, from: investor}).should.be.rejectedWith(EVMRevert);
+  });
+
+  // it('Should accept payments during the sale', async function () {
+  //   const investmentAmount = ether(10);
   //   const expectedTokenAmount = rate.mul(investmentAmount);
 
   //   await increaseTimeTo(this.startTime);
-  //   await this.crowdsale.buyTokens(investor, { value: investmentAmount, from: investor }).should.be.fulfilled;
+  //   await this.crowdsale.buyTokens(investor, {value: investmentAmount, from: investor}).should.be.fulfilled;
 
   //   (await this.token.balanceOf(investor)).should.be.bignumber.equal(expectedTokenAmount);
   //   (await this.token.totalSupply()).should.be.bignumber.equal(expectedTokenAmount);
   // });
 
-  // it('should reject payments after end', async function () {
-  //   await increaseTimeTo(this.afterEndTime);
-  //   await this.crowdsale.send(ether(1)).should.be.rejectedWith(EVMRevert);
-  //   await this.crowdsale.buyTokens(investor, { value: ether(1), from: investor }).should.be.rejectedWith(EVMRevert);
-  // });
-
+  it('should reject payments over cap', async function () {
+    const investmentAmount = ether(10);
+    await increaseTimeTo(this.openingTime);
+    await this.crowdsale.send(hardCap);
+    await this.crowdsale.send(investmentAmount).should.be.rejectedWith(EVMRevert);
+  });
   // it('should reject payments over cap', async function () {
   //   await increaseTimeTo(this.startTime);
   //   await this.crowdsale.send(CAP);

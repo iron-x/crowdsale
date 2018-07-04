@@ -157,7 +157,7 @@ contract Crowdsale is Whitelist {
    */
   modifier hardCapNotReached() {
     require(
-      weiRaised < hardCap,
+      weiRaised <= hardCap,
       "Hard cap is reached"
     );
     _;
