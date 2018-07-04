@@ -15,7 +15,10 @@ contract TokenVesting is Ownable {
   using SafeMath for uint256;
   using SafeERC20 for Token;
 
+  // Token release event, emits once owner releasing his tokens 
   event Released(uint256 amount);
+
+  // Token revoke event
   event Revoked();
 
   // beneficiary of tokens after they are released

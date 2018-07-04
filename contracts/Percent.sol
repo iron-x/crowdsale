@@ -1,6 +1,13 @@
 pragma solidity ^0.4.24;
 
 library Percent {
+
+  /**
+   * @dev Add percent to numerator variable with precision
+   * @param numerator initial value
+   * @param percent percent that must be added to numerator
+   * @param precision defines accuracy of rounding off
+   */
 	function perc
 	(
     uint256 numerator, 

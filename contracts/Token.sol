@@ -6,6 +6,9 @@ import "openzeppelin-solidity/contracts/math/SafeMath.sol";
 
 contract Token is StandardToken, Ownable {
   
+  /**
+   * Variables that define basic token features
+   */ 
   uint256 public decimals;
   string public name;
   string public symbol;
@@ -21,6 +24,8 @@ contract Token is StandardToken, Ownable {
     symbol = _symbol;
 
     balances[msg.sender] = _totalSupply;
+
+    // transfer all supply to the owner
     emit Transfer(address(0), msg.sender, _totalSupply);
   }
 }
