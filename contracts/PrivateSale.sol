@@ -1,24 +1,25 @@
 pragma solidity ^0.4.24;
 
 import "openzeppelin-solidity/contracts/token/ERC20/SafeERC20.sol";
+import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
 import "./Percent.sol";
 import "./Token.sol";
 import "./Whitelist.sol";
 import "./TokenVesting.sol";
 
 /**
- * @title Crowdsale
- * @dev Crowdsale is a base contract for managing a token crowdsale,
+ * @title PrivateSale
+ * @dev PrivateSale is a base contract for managing a token sale,
  * allowing investors to purchase tokens with ether. This contract implements
  * such functionality in its most fundamental form and can be extended to provide additional
  * functionality and/or custom behavior.
  * The external interface represents the basic interface for purchasing tokens, and conform
- * the base architecture for crowdsales. They are *not* intended to be modified / overriden.
- * The internal interface conforms the extensible and modifiable surface of crowdsales. Override
+ * the base architecture for sales. They are *not* intended to be modified / overriden.
+ * The internal interface conforms the extensible and modifiable surface of sales. Override
  * the methods to add functionality. Consider using 'super' where appropiate to concatenate
  * behavior.
  */
-contract Crowdsale is Whitelist {
+contract PrivateSale is Whitelist {
   using SafeMath for uint256;
   using Percent for uint256;
   using SafeERC20 for Token;
@@ -38,11 +39,11 @@ contract Crowdsale is Whitelist {
    * ============================
    * Variables values are test!!!
    */
-  uint256 public USD_50K = 971911700000000000;
-  uint256 public USD_150K = 291573500000000000000;
-  uint256 public USD_250K = 485955800000000000000;
-  uint256 public USD_500K = 971911700000000000000;
-  uint256 public USD_1KK = 1943823500000000000000;
+  uint256 private SMALLEST_SUM = 971911700000000000;
+  uint256 private SMALLER_SUM = 291573500000000000000;
+  uint256 private MEDIUM_SUM = 485955800000000000000;
+  uint256 private BIGGER_SUM = 971911700000000000000;
+  uint256 private BIGGEST_SUM = 1943823500000000000000;
 
   /**
    * Variables for setup vesting period
@@ -52,12 +53,12 @@ contract Crowdsale is Whitelist {
   uint256 public PERIOD_3M = 7889231;
 
   bool public isFinalized = false;
+  uint256 public weiRaised = 0;
 
   Token public token;
   
   address public wallet;
-  uint256 public rate;
-  uint256 public weiRaised;
+  uint256 public rate;  
   uint256 public softCap;
   uint256 public hardCap;
   uint256 public startTime;
@@ -77,7 +78,11 @@ contract Crowdsale is Whitelist {
     uint256 amount
   );
 
+  event Contribute(uint256 value);
+
   event Finalized();
+
+  event Bonused(uint256 value);
 
   /**
    * Event for creation of token vesting contract
@@ -109,7 +114,12 @@ contract Crowdsale is Whitelist {
     uint256 _softCap,
     uint256 _hardCap,
     uint256 _startTime,
-    uint256 _endTime
+    uint256 _endTime,
+    uint256 _smallestSum,
+    uint256 _smallerSum,
+    uint256 _mediumSum,
+    uint256 _biggerSum,
+    uint256 _biggestSum
   ) 
     public 
   {
@@ -129,11 +139,17 @@ contract Crowdsale is Whitelist {
     softCap = _softCap;
     startTime = _startTime;
     endTime = _endTime;
+
+    SMALLEST_SUM = _smallestSum;
+    SMALLER_SUM = _smallerSum;
+    MEDIUM_SUM = _mediumSum;
+    BIGGER_SUM = _biggerSum;
+    BIGGEST_SUM = _biggestSum;    
   }
 
 
   // -----------------------------------------
-  // Crowdsale external interface
+  // PrivateSale external interface
   // -----------------------------------------
   /**
    * @dev function for buying tokens
@@ -175,11 +191,11 @@ contract Crowdsale is Whitelist {
 
 
   /**
-   *  @dev check if value respects crowdsale minimal contribution sum
+   *  @dev check if value respects sale minimal contribution sum
    */
   modifier respectContribution() {
     require(
-      msg.value >= USD_50K,
+      msg.value >= SMALLEST_SUM,
       "Minimum contribution is $50,000"
     );
     _;
@@ -187,12 +203,12 @@ contract Crowdsale is Whitelist {
 
 
   /**
-   * @dev check if crowdsale is still open
+   * @dev check if sale is still open
    */
   modifier onlyWhileOpen {
     require(
       block.timestamp >= startTime && block.timestamp <= endTime && !isFinalized,
-      "Crowdsale is closed"
+      "PrivateSale is closed"
     );
     _;
   }
@@ -207,10 +223,11 @@ contract Crowdsale is Whitelist {
    payable
   {
     uint256 weiAmount = msg.value;
+
     _preValidatePurchase(_beneficiary, weiAmount);
 
     // calculate token amount to be created
-    uint256 tokens = _getTokenAmount(msg.sender, weiAmount);
+    uint256 tokens = _getTokenAmount(weiAmount);
 
     // update state
     weiRaised = weiRaised.add(weiAmount);
@@ -248,7 +265,7 @@ contract Crowdsale is Whitelist {
     view
     internal
   {
-    require(weiRaised.add(_weiAmount) <= softCap);
+    require(weiRaised.add(_weiAmount) <= hardCap);
     require(_beneficiary != address(0));
     require(_weiAmount != 0);
   }
@@ -282,74 +299,20 @@ contract Crowdsale is Whitelist {
   )
     internal
   {
-    require(_beneficiary != 0x0);
-    require(_tokens > 0);
-
     uint256 _start = block.timestamp;
     uint256 _duration = _start.add(PERIOD_1Y);
     uint256 _cliff = PERIOD_3M;
 
     vesting[_beneficiary] = new TokenVesting(_beneficiary, _start, _cliff, _duration, false);
 
-    token.safeTransfer(vesting[_beneficiary], _tokens);
+    token.safeTransfer(address(vesting[_beneficiary]), _tokens);
 
     emit TimeVestingCreation(_beneficiary, _start, _cliff, _duration, false);
   }
 
 
   /**
-   * @dev Adding contributor to the list of reward receivers
-   * @param _beneficiary address of reward receiver
-   * @param _reward amount of reward tokens
-   */
-  function addRewardReceiver
-  (
-    address _beneficiary,
-    uint256 _reward
-  ) 
-    internal
-  {
-    rewardReceivers[_beneficiary] = RewardReceiver
-    (
-      block.timestamp,
-       _reward
-    );
-  }
-
-
-  /**
-   * @dev Release token timely reward to beneficiary
-   * @param _receiver address of person who will receive reward
-   */
-  function getReward
-  (
-    address _receiver
-  ) 
-    public
-    view
-    isRewardReceiver(_receiver)
-    returns(uint256 _rewardToTransfer)
-  {
-    RewardReceiver memory _reward = rewardReceivers[_receiver];
-    uint256 _passedTime = block.timestamp.sub(_reward.time);
-    _rewardToTransfer = 0;
-
-    if (_passedTime > PERIOD_1Y && _passedTime < PERIOD_1Y.mul(2)) {
-      _rewardToTransfer = _reward.reward;
-    }
-    if (_passedTime > PERIOD_1Y.mul(2) && _passedTime < PERIOD_1Y.mul(3)) {
-      _rewardToTransfer = _reward.reward.mul(2);
-    }
-    if (_passedTime > PERIOD_1Y.mul(3)) {
-      _rewardToTransfer = _reward.reward.mul(3);
-    }
-
-    return _rewardToTransfer;
-  }
-
-
-  /**
-   *  @dev checks if crowdsale is closed
+   *  @dev checks if sale is closed
    */
   function hasClosed() public view returns (bool) {
     return block.timestamp > endTime;
@@ -370,27 +333,6 @@ contract Crowdsale is Whitelist {
 
     TokenVesting tokenVesting = vesting[_beneficiary];
     tokenVesting.release(token);
-
-    token.safeTransfer(_beneficiary, getReward(_beneficiary));
-  }
-
-
-  /**
-   * @dev Source of tokens. Override this method to modify the way in which the crowdsale ultimately gets and sends its tokens.
-   * @param _beneficiary Address performing the token purchase
-   * @param _tokenAmount Number of tokens to be emitted
-   */
-  function _deliverTokens(
-    address _beneficiary,
-    uint256 _tokenAmount
-  )
-    internal
-  {
-    if (tokenRewards[_beneficiary] > 0) {
-      uint256 _tokenBonus = tokenRewards[_beneficiary];
-      addRewardReceiver(_beneficiary, _tokenBonus);
-    }
-    createTimeBasedVesting(_beneficiary, _tokenAmount);
   }
 
 
@@ -405,7 +347,7 @@ contract Crowdsale is Whitelist {
   )
     internal
   {
-    _deliverTokens(_beneficiary, _tokenAmount);
+     createTimeBasedVesting(_beneficiary, _tokenAmount);
   }
 
 
@@ -432,28 +374,27 @@ contract Crowdsale is Whitelist {
    */
   function _getTokenAmount
   (
-    address _beneficiary,
     uint256 _weiAmount
   )
     internal
+    view
     returns (uint256 purchasedAmount)
   {
-    if (_weiAmount > USD_50K && _weiAmount < USD_150K) {
-      purchasedAmount = _weiAmount + _weiAmount.perc(5, 3);
+    purchasedAmount = _weiAmount;
+    if (_weiAmount > SMALLEST_SUM && _weiAmount < SMALLER_SUM) {
+      purchasedAmount = _weiAmount.perc(5);
     }
-    if (_weiAmount > USD_150K && _weiAmount < USD_250K) {
-      purchasedAmount = _weiAmount + _weiAmount.perc(10, 3);
+    if (_weiAmount > SMALLER_SUM && _weiAmount < MEDIUM_SUM) {
+      purchasedAmount = _weiAmount.perc(10);
     }
-    if (_weiAmount > USD_250K && _weiAmount < USD_500K) {
-      purchasedAmount = _weiAmount + _weiAmount.perc(15, 3);
+    if (_weiAmount > MEDIUM_SUM && _weiAmount < BIGGER_SUM) {
+      purchasedAmount = _weiAmount.perc(15);
     }
-    if (_weiAmount > USD_500K && _weiAmount < USD_1KK) {
-      purchasedAmount = _weiAmount + _weiAmount.perc(20, 3);
-      tokenRewards[_beneficiary] = 1;
+    if (_weiAmount > BIGGER_SUM && _weiAmount < BIGGEST_SUM) {
+      purchasedAmount = _weiAmount.perc(20);
     }
-    if (_weiAmount > USD_1KK) {
-      purchasedAmount = _weiAmount + _weiAmount.perc(30, 3);
-      tokenRewards[_beneficiary] = 2;
+    if (_weiAmount > BIGGEST_SUM) {
+      purchasedAmount = _weiAmount.perc(30);
     }
     return purchasedAmount;
   }
@@ -468,7 +409,7 @@ contract Crowdsale is Whitelist {
 
 
    /**
-   * @dev Must be called after crowdsale ends, to do some extra finalization
+   * @dev Must be called after sale ends, to do some extra finalization
    * work. Calls the contract's finalization function.
    */
   function finalize() onlyOwner public {

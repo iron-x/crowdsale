@@ -1,4 +1,5 @@
 import EVMRevert from './helpers/EVMRevert';
+import assertRevert from './helpers/assertRevert';
 import latestTime from './helpers/latestTime';
 import { increaseTimeTo, duration } from './helpers/increaseTime';
 
@@ -26,13 +27,9 @@ contract('TokenVesting', function ([owner, beneficiary]) {
     this.duration = duration.years(2);
 
     this.token = await Token.new(totalSupply, decimals, name, symbol);
-    this.vesting = await TokenVesting.new(beneficiary, this.start, this.cliff, this.duration, true, { from: owner });
+    this.vesting = await TokenVesting.new(beneficiary, this.start, this.cliff, this.duration, true);
 
     await this.token.transfer(this.vesting.address, amount);
-  });
-
-  it('Cannot be released before cliff', async function () {
-    await this.vesting.release(this.token.address).should.be.rejectedWith(EVMRevert);
   });
 
   it('Can be released after cliff', async function () {

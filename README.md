@@ -16,7 +16,7 @@
 * Has fixed supply of tokens
 * Allow to increase or decrease amount of approval tokens
 
-### Crowdsale
+### PrivateSale
 
 * Time-dependent crowdsale with bonus structure
 * Vesting and cliff features
