@@ -1,5 +1,5 @@
 const Token = artifacts.require("./Token.sol");
-const PrivateSale = artifacts.require("./PrivateSale.sol");
+const Allocation = artifacts.require("./Allocation.sol");
 
 /**
  * Token constructor parameters
@@ -36,7 +36,7 @@ module.exports = function(deployer, network, accounts) {
 
   	console.log(token.address);
 
-  	deployer.deploy(PrivateSale, rate, wallet, token.address, softCap, hardCap, startTime, endTime, smallestSum, smallerSum, mediumSum, biggerSum, biggestSum)
+  	deployer.deploy(Allocation, rate, wallet, token.address, softCap, hardCap, startTime, endTime, smallestSum, smallerSum, mediumSum, biggerSum, biggestSum)
   		.then((instance) => {
   			console.log(instance.address);
   		});

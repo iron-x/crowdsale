@@ -24,9 +24,11 @@ contract TokenVesting is Ownable {
   // beneficiary of tokens after they are released
   address public beneficiary;
 
-  uint256 public cliff;
   uint256 public start;
-  uint256 public duration;
+
+  uint256 public duration = 23667695;
+  uint256 public secondStage = 15778458;
+  uint256 public firstStage = 7889229;
 
   bool public revocable;
 
@@ -38,27 +40,19 @@ contract TokenVesting is Ownable {
    * _beneficiary, gradually in a linear fashion until _start + _duration. By then all
    * of the balance will have vested.
    * @param _beneficiary address of the beneficiary to whom vested tokens are transferred
-   * @param _cliff duration in seconds of the cliff in which tokens will begin to vest
    * @param _start the time (as Unix time) at which point vesting starts 
-   * @param _duration duration in seconds of the period in which the tokens will vest
    * @param _revocable whether the vesting is revocable or not
    */
   constructor(
     address _beneficiary,
     uint256 _start,
-    uint256 _cliff,
-    uint256 _duration,
     bool _revocable
   )
     public
   {
     require(_beneficiary != address(0));
-    require(_cliff <= _duration);
-
     beneficiary = _beneficiary;
     revocable = _revocable;
-    duration = _duration;
-    cliff = _start.add(_cliff);
     start = _start;
   }
 
@@ -73,7 +67,7 @@ contract TokenVesting is Ownable {
 
     released[token] = released[token].add(unreleased);
 
-    token.safeTransfer(beneficiary, unreleased);
+    token.transfer(beneficiary, unreleased);
 
     emit Released(unreleased);
   }
@@ -94,7 +88,7 @@ contract TokenVesting is Ownable {
 
     revoked[token] = true;
 
-    token.safeTransfer(owner, refund);
+    token.transfer(owner, refund);
 
     emit Revoked();
   }
@@ -115,12 +109,14 @@ contract TokenVesting is Ownable {
     uint256 currentBalance = token.balanceOf(this);
     uint256 totalBalance = currentBalance.add(released[token]);
 
-    if (block.timestamp < cliff) {
+    if (block.timestamp < start.add(firstStage)) {
       return 0;
     } else if (block.timestamp >= start.add(duration) || revoked[token]) {
       return totalBalance;
-    } else {
-      return totalBalance.mul(block.timestamp.sub(start)).div(duration);
+    } else if(block.timestamp >= start.add(firstStage) && block.timestamp <= start.add(secondStage)){
+      return totalBalance.div(3);
+    } else if(block.timestamp >= start.add(secondStage) && block.timestamp <= start.add(duration)){
+      return totalBalance.div(3).mul(2);
     }
   }
 }

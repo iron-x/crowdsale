@@ -1,0 +1,508 @@
+pragma solidity ^0.4.24;
+
+import "openzeppelin-solidity/contracts/token/ERC20/SafeERC20.sol";
+import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
+import "./Percent.sol";
+import "./Token.sol";
+import "./Whitelist.sol";
+import "./TokenVesting.sol";
+
+/**
+ * @title PrivateSale
+ * @dev PrivateSale is a base contract for managing a token sale,
+ * allowing investors to purchase tokens with ether. This contract implements
+ * such functionality in its most fundamental form and can be extended to provide additional
+ * functionality and/or custom behavior.
+ * The external interface represents the basic interface for purchasing tokens, and conform
+ * the base architecture for sales. They are *not* intended to be modified / overriden.
+ * The internal interface conforms the extensible and modifiable surface of sales. Override
+ * the methods to add functionality. Consider using 'super' where appropiate to concatenate
+ * behavior.
+ */
+contract Allocation is Whitelist {
+  using SafeMath for uint256;
+  using Percent for uint256;
+  using SafeERC20 for Token;
+
+  /**
+   * Event for token purchase logging
+   * @param purchaser who paid for the tokens
+   * @param beneficiary who got the tokens
+   * @param value weis paid for purchase
+   * @param amount amount of tokens purchased
+   */
+  event TokenPurchase(
+    address indexed purchaser,
+    address indexed beneficiary,
+    uint256 value,
+    uint256 amount
+  );
+
+  event Finalized();
+
+  /**
+   * Event for creation of token vesting contract
+   * @param beneficiary who will receive tokens 
+   * @param start time of vesting start
+   * @param revocable specifies if vesting contract has abitility to revoke
+   */
+  event TimeVestingCreation
+  (
+    address beneficiary,
+    uint256 start,
+    uint256 duration,
+    bool revocable
+  );
+
+  struct RewardReceiver {
+    uint256 time;
+    uint256 reward;
+  }
+
+  struct PartInfo {
+    uint256 percent;
+    uint256 lockup;
+    uint256 release;
+    uint256 amount;
+  }
+
+  mapping (address => bool) owners;
+  mapping (address => uint256) contributors;            // 
+  mapping (address => TokenVesting) public vesting;
+  mapping (uint256 => PartInfo) pieChart;
+  mapping (address => bool) isInvestor;
+  
+  address[] public investors;
+
+  /**
+   * Variables for bonus program
+   * ============================
+   * Variables values are test!!!
+   */
+  uint256 private SMALLEST_SUM = 0; // 971911700000000000
+  uint256 private SMALLER_SUM = 0; // 291573500000000000000
+  uint256 private MEDIUM_SUM = 0; // 485955800000000000000
+  uint256 private BIGGER_SUM = 0; // 971911700000000000000
+  uint256 private BIGGEST_SUM = 0; // 1943823500000000000000
+
+  /**
+   * Variables for setup vesting period
+   */
+  uint256 public duration = 23667695;
+  uint256 public secondStage = 15778458;
+  uint256 public firstStage = 7889229;
+
+  bool public isFinalized = false;
+  uint256 public weiRaised = 0;
+
+  Token public token;
+  
+  address public wallet;
+  uint256 public rate;  
+  uint256 public softCap;
+  uint256 public hardCap;
+
+  /**
+   * @param _rate Number of token units a buyer gets per wei
+   * @param _wallet Address where collected funds will be forwarded to
+   * @param _token Address of the token being sold
+   */
+  constructor(
+    uint256 _rate, 
+    address _wallet, 
+    Token _token,
+    uint256 _softCap,
+    uint256 _hardCap,
+    uint256 _smallestSum,
+    uint256 _smallerSum,
+    uint256 _mediumSum,
+    uint256 _biggerSum,
+    uint256 _biggestSum
+  ) 
+    public 
+  {
+    require(_rate > 0);
+    require(_wallet != address(0));
+    require(_token != address(0));
+    require(_hardCap > 0);
+    require(_softCap > 0);
+    require(_hardCap > _softCap);
+
+    rate = _rate;
+    wallet = _wallet;
+    token = _token;
+    hardCap = _hardCap;
+    softCap = _softCap;
+
+    SMALLEST_SUM = _smallestSum;
+    SMALLER_SUM = _smallerSum;
+    MEDIUM_SUM = _mediumSum;
+    BIGGER_SUM = _biggerSum;
+    BIGGEST_SUM = _biggestSum;
+
+    owners[msg.sender] = true;
+
+    /**
+    * Pie chart 
+    *
+    * early cotributors => 1
+    * management team => 2
+    * advisors => 3
+    * partners => 4
+    * community => 5
+    * company => 6
+    * liquidity => 7
+    * sale => 8
+    */
+    pieChart[1] = PartInfo(10, 9, 3, token.totalSupply() * 10 / 100);
+    pieChart[2] = PartInfo(15, 9, 3, token.totalSupply() * 15 / 100);
+    pieChart[3] = PartInfo(5, 9, 3, token.totalSupply() * 5 / 100);
+    pieChart[4] = PartInfo(5, 0, 0, token.totalSupply() * 5 / 100);
+    pieChart[5] = PartInfo(8, 0, 0, token.totalSupply() * 8 / 100);
+    pieChart[6] = PartInfo(17, 0, 0, token.totalSupply() * 17 / 100);
+    pieChart[7] = PartInfo(10, 0, 0, token.totalSupply() * 10 / 100);
+    pieChart[8] = PartInfo(30, 0, 3, token.totalSupply() * 30 / 100); 
+  }
+
+  // -----------------------------------------
+  // Allocation external interface
+  // -----------------------------------------
+  /**
+   * @dev function for buying tokens
+   */
+  function() 
+    external 
+    payable 
+  {
+    buyTokens(msg.sender);
+  }
+
+
+  /**
+   * @dev check if hard cap reached
+   */
+  modifier hardCapNotReached() {
+    require(
+      weiRaised <= hardCap,
+      "Hard cap is reached"
+    );
+    _;
+  }
+
+
+  /**
+   *  @dev check if value respects sale minimal contribution sum
+   */
+  modifier respectContribution() {
+    require(
+      msg.value >= SMALLEST_SUM,
+      "Minimum contribution is $50,000"
+    );
+    _;
+  }
+
+
+  /**
+   * @dev check if sale is still open
+   */
+  modifier onlyWhileOpen {
+    require(!isFinalized, "PrivateSale is closed");
+    _;
+  }
+
+  /**
+   * Owners Part 
+   */
+
+  modifier onlyOwner {
+    require(isOwner(msg.sender) == true, "User is not in Owners");
+    _;
+  }
+
+
+  function addOwner(address _owner) onlyOwner public {
+    owners[_owner] = true;
+  }
+
+
+  function deleteOwner(address _owner) onlyOwner public {
+    owners[_owner] = false;
+  }
+
+  function isOwner(address _address) public view returns(bool res) {
+    return owners[_address];
+  }
+  
+  function allocateTokens() onlyOwner public {
+    for (uint i = 0; i < investors.length; i++) {
+      allocateTokensInternal(investors[i]);
+    }
+  }
+
+  function allocateTokensForContributor(address _contributor) onlyOwner public {
+    allocateTokensInternal(_contributor);
+  }
+
+  function allocateTokensInternal(address _contributor) internal {
+    uint256 weiAmount = contributors[_contributor];
+
+    if (weiAmount > 0) {
+      uint256 tokens = _getTokenAmount(weiAmount);
+      uint256 bonusTokens = _getBonusTokens(weiAmount);
+
+      pieChart[8].amount = pieChart[8].amount.sub(tokens);
+      pieChart[1].amount = pieChart[1].amount.sub(bonusTokens);
+
+      token.transfer(_contributor, tokens);
+      _sendToVesting(_contributor, bonusTokens);
+
+      _forwardFunds();
+
+      contributors[_contributor] = 0;
+    }
+  }
+  
+
+  function sendFunds(address _to, uint256 _type, uint256 amount) onlyOwner public {
+    require(pieChart[_type].amount >= amount);
+    _sendToVesting(_to, amount);
+    pieChart[_type].amount -= amount;
+  }
+
+  /**
+   * @dev low level token purchase ***DO NOT OVERRIDE***
+   * @param _beneficiary Address performing the token purchase
+   */
+  function buyTokens(address _beneficiary) public payable {
+    uint256 weiAmount = msg.value;
+
+    _preValidatePurchase(_beneficiary, weiAmount);
+
+    // calculate token amount to be created without bonuses
+    uint256 tokens = _getTokenAmount(weiAmount);
+
+    // update state
+    weiRaised = weiRaised.add(weiAmount);
+
+    contributors[_beneficiary] += weiRaised;
+
+    pieChart[8].amount = pieChart[8].amount.sub(tokens);
+
+    if(!isInvestor[_beneficiary]){
+      investors.push(_beneficiary);
+    }
+
+    // _sendToVesting(_beneficiary, tokens);
+
+    // _forwardFunds();
+
+    emit TokenPurchase(
+      msg.sender,
+      _beneficiary,
+      weiAmount,
+      tokens
+    );
+  }
+
+
+  // -----------------------------------------
+  // Internal interface (extensible)
+  // -----------------------------------------
+  /**
+   * @dev Validation of an incoming purchase. Use require statements to revert state when conditions are not met. Use super to concatenate validations.
+   * @param _beneficiary Address performing the token purchase
+   * @param _weiAmount Value in wei involved in the purchase
+   */
+  function _preValidatePurchase
+  (
+    address _beneficiary,
+    uint256 _weiAmount
+  )
+    onlyIfWhitelisted(_beneficiary)
+    respectContribution
+    onlyWhileOpen
+    hardCapNotReached
+    view
+    internal
+  {
+    require(weiRaised.add(_weiAmount) <= hardCap);
+    require(_beneficiary != address(0));
+  }
+
+
+  /**
+   * @dev Validation of an executed purchase. Observe state and use revert statements to undo rollback when valid conditions are not met.
+   * @param _beneficiary Address performing the token purchase
+   * @param _weiAmount Value in wei involved in the purchase
+   */
+  function _postValidatePurchase(
+    address _beneficiary,
+    uint256 _weiAmount
+  )
+    pure
+    internal
+  {
+    // optional override
+  }
+
+
+  /**
+   * @dev Create vesting contract
+   * @param _beneficiary address of person who will get all tokens as vesting ends
+   * @param _tokens amount of vested tokens
+   */
+  function createTimeBasedVesting
+  (
+    address _beneficiary,
+    uint256 _tokens
+  )
+    internal
+  {
+    uint256 _start = block.timestamp;
+
+    TokenVesting tokenVesting;
+
+    if (vesting[_beneficiary] == address(0)) {
+      tokenVesting = new TokenVesting(_beneficiary, _start, false);
+      vesting[_beneficiary] = tokenVesting;
+    } else {
+      tokenVesting = vesting[_beneficiary];
+    }
+
+    token.transfer(address(tokenVesting), _tokens);
+
+    emit TimeVestingCreation(_beneficiary, _start, duration, false);
+  }
+
+
+  /**
+   *  @dev checks if sale is closed
+   */
+  function hasClosed() public view returns (bool) {
+    return isFinalized;
+  }
+
+  /** 
+   * @dev Release tokens from vesting contract
+   */
+  function releaseVestedTokens() 
+    public
+  {
+    address beneficiary = msg.sender;
+    require(beneficiary != address(0));
+    require(vesting[beneficiary] != address(0));
+
+    TokenVesting tokenVesting = vesting[beneficiary];
+    tokenVesting.release(token);
+  }
+
+
+  /**
+   * @dev Executed when a purchase has been validated and is ready to be executed. Not necessarily emits/sends tokens.
+   * @param _beneficiary Address receiving the tokens
+   * @param _tokenAmount Number of tokens to be purchased
+   */
+  function _sendToVesting(
+    address _beneficiary,
+    uint256 _tokenAmount
+  )
+    internal
+  {
+     createTimeBasedVesting(_beneficiary, _tokenAmount);
+  }
+
+
+  /**
+   * @dev Override for extensions that require an internal state to check for validity (current user contributions, etc.)
+   * @param _beneficiary Address receiving the tokens
+   * @param _weiAmount Value in wei involved in the purchase
+   */
+  function _updatePurchasingState(
+    address _beneficiary,
+    uint256 _weiAmount
+  )
+    pure
+    internal
+  {
+    // optional override
+  }
+
+
+  /**
+   * @dev Override to extend the way in which ether is converted to tokens.
+   * @param _weiAmount Value in wei to be converted into tokens
+   * @return Number of tokens that can be purchased with the specified _weiAmount
+   */
+  function _getBonusTokens
+  (
+    uint256 _weiAmount
+  )
+    internal
+    view
+    returns (uint256 purchasedAmount)
+  {
+    purchasedAmount = _weiAmount;
+
+    if (_weiAmount >= SMALLEST_SUM && _weiAmount < SMALLER_SUM) {
+      purchasedAmount = _weiAmount.perc(5);
+    }
+
+    if (_weiAmount >= SMALLER_SUM && _weiAmount < MEDIUM_SUM) {
+      purchasedAmount = _weiAmount.perc(10);
+    }
+
+    if (_weiAmount >= MEDIUM_SUM && _weiAmount < BIGGER_SUM) {
+      purchasedAmount = _weiAmount.perc(15);
+    }
+
+    if (_weiAmount >= BIGGER_SUM && _weiAmount < BIGGEST_SUM) {
+      purchasedAmount = _weiAmount.perc(20);
+    }
+
+    if (_weiAmount >= BIGGEST_SUM) {
+      purchasedAmount = _weiAmount.perc(30);
+    }
+
+    return purchasedAmount.mul(rate);
+  }
+
+  function _getTokenAmount
+  (
+    uint256 _weiAmount
+  )
+    internal
+    view
+    returns (uint256 purchasedAmount)
+  {
+    return _weiAmount.mul(rate);
+  }
+
+  /**
+   * @dev Determines how ETH is stored/forwarded on purchases.
+   */
+  function _forwardFunds() internal {
+    wallet.transfer(msg.value);
+  }
+
+
+   /**
+   * @dev Must be called after sale ends, to do some extra finalization
+   * work. Calls the contract's finalization function.
+   */
+  function finalize() onlyOwner public {
+    require(!isFinalized);
+    require(!hasClosed());
+    finalization();
+    isFinalized = true;
+    emit Finalized();
+  } 
+
+
+  /**
+   * @dev Can be overridden to add finalization logic. The overriding function
+   * should call super.finalization() to ensure the chain of finalization is
+   * executed entirely.
+   */
+  function finalization() pure internal {}
+
+}

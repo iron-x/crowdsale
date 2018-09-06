@@ -1,7 +1,8 @@
 pragma solidity ^0.4.24;
+import "openzeppelin-solidity/contracts/math/SafeMath.sol";
 
 library Percent {
-
+  using SafeMath for uint256;
   /**
    * @dev Add percent to numerator variable with precision
    */
@@ -14,8 +15,6 @@ library Percent {
     pure 
     returns(uint256 result) 
   { 
-    uint256 toAdd  = (initialValue / 100) * percent;
-    result = initialValue + toAdd;
-    return result;
+    return initialValue.div(100).mul(percent);
   }
 }
