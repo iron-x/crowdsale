@@ -24,11 +24,16 @@ contract TokenVesting is Ownable {
   // beneficiary of tokens after they are released
   address public beneficiary;
 
+  // start
   uint256 public start;
 
+  /**
+   * Variables for setup vesting and release periods
+   */
   uint256 public duration = 23667695;
-  uint256 public secondStage = 15778458;
   uint256 public firstStage = 7889229;
+  uint256 public secondStage = 15778458;
+  
 
   bool public revocable;
 

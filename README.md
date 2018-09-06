@@ -6,7 +6,8 @@
 2. `git checkout develop`
 3. `npm install` or `npm i`
 4. `truffle compile` 
-5. `truffle test`
+5. `ganache-cli` - first terminal
+6. `truffle test` - second terminal
 
 ## Smart-contracts description
 

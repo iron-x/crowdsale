@@ -8,16 +8,9 @@ import "./Whitelist.sol";
 import "./TokenVesting.sol";
 
 /**
- * @title PrivateSale
- * @dev PrivateSale is a base contract for managing a token sale,
- * allowing investors to purchase tokens with ether. This contract implements
- * such functionality in its most fundamental form and can be extended to provide additional
- * functionality and/or custom behavior.
- * The external interface represents the basic interface for purchasing tokens, and conform
- * the base architecture for sales. They are *not* intended to be modified / overriden.
- * The internal interface conforms the extensible and modifiable surface of sales. Override
- * the methods to add functionality. Consider using 'super' where appropiate to concatenate
- * behavior.
+ * @title Allocation
+ * Allocation is a base contract for managing a token sale,
+ * allowing investors to purchase tokens with ether.
  */
 contract Allocation is Whitelist {
   using SafeMath for uint256;
@@ -54,20 +47,14 @@ contract Allocation is Whitelist {
     bool revocable
   );
 
-  struct RewardReceiver {
-    uint256 time;
-    uint256 reward;
-  }
-
   struct PartInfo {
     uint256 percent;
-    uint256 lockup;
-    uint256 release;
+    bool lockup;
     uint256 amount;
   }
 
   mapping (address => bool) owners;
-  mapping (address => uint256) contributors;            // 
+  mapping (address => uint256) contributors;            
   mapping (address => TokenVesting) public vesting;
   mapping (uint256 => PartInfo) pieChart;
   mapping (address => bool) isInvestor;
@@ -79,24 +66,24 @@ contract Allocation is Whitelist {
    * ============================
    * Variables values are test!!!
    */
-  uint256 private SMALLEST_SUM = 0; // 971911700000000000
-  uint256 private SMALLER_SUM = 0; // 291573500000000000000
-  uint256 private MEDIUM_SUM = 0; // 485955800000000000000
-  uint256 private BIGGER_SUM = 0; // 971911700000000000000
-  uint256 private BIGGEST_SUM = 0; // 1943823500000000000000
+  uint256 private SMALLEST_SUM; // 971911700000000000
+  uint256 private SMALLER_SUM;  // 291573500000000000000
+  uint256 private MEDIUM_SUM;   // 485955800000000000000
+  uint256 private BIGGER_SUM;   // 971911700000000000000
+  uint256 private BIGGEST_SUM;  // 1943823500000000000000
 
-  /**
-   * Variables for setup vesting period
-   */
+  // Vesting period
   uint256 public duration = 23667695;
-  uint256 public secondStage = 15778458;
-  uint256 public firstStage = 7889229;
 
+  // Flag of Finalized sale event
   bool public isFinalized = false;
+
+  // Wei raides accumulator
   uint256 public weiRaised = 0;
 
+  //
   Token public token;
-  
+  //
   address public wallet;
   uint256 public rate;  
   uint256 public softCap;
@@ -106,6 +93,13 @@ contract Allocation is Whitelist {
    * @param _rate Number of token units a buyer gets per wei
    * @param _wallet Address where collected funds will be forwarded to
    * @param _token Address of the token being sold
+   * @param _softCap Soft cap
+   * @param _hardCap Hard cap
+   * @param _smallestSum Sum after which investor receives 5% of bonus tokens to vesting contract
+   * @param _smallerSum Sum after which investor receives 10% of bonus tokens to vesting contract
+   * @param _mediumSum Sum after which investor receives 15% of bonus tokens to vesting contract
+   * @param _biggerSum Sum after which investor receives 20% of bonus tokens to vesting contract
+   * @param _biggestSum Sum after which investor receives 30% of bonus tokens to vesting contract
    */
   constructor(
     uint256 _rate, 
@@ -154,21 +148,21 @@ contract Allocation is Whitelist {
     * liquidity => 7
     * sale => 8
     */
-    pieChart[1] = PartInfo(10, 9, 3, token.totalSupply() * 10 / 100);
-    pieChart[2] = PartInfo(15, 9, 3, token.totalSupply() * 15 / 100);
-    pieChart[3] = PartInfo(5, 9, 3, token.totalSupply() * 5 / 100);
-    pieChart[4] = PartInfo(5, 0, 0, token.totalSupply() * 5 / 100);
-    pieChart[5] = PartInfo(8, 0, 0, token.totalSupply() * 8 / 100);
-    pieChart[6] = PartInfo(17, 0, 0, token.totalSupply() * 17 / 100);
-    pieChart[7] = PartInfo(10, 0, 0, token.totalSupply() * 10 / 100);
-    pieChart[8] = PartInfo(30, 0, 3, token.totalSupply() * 30 / 100); 
+    pieChart[1] = PartInfo(10, true, token.totalSupply().mul(10).div(100));
+    pieChart[2] = PartInfo(15, true, token.totalSupply().mul(15).div(100));
+    pieChart[3] = PartInfo(5, true, token.totalSupply().mul(5).div(100));
+    pieChart[4] = PartInfo(5, false, token.totalSupply().mul(5).div(100));
+    pieChart[5] = PartInfo(8, false, token.totalSupply().mul(8).div(100));
+    pieChart[6] = PartInfo(17, false, token.totalSupply().mul(17).div(100));
+    pieChart[7] = PartInfo(10, false, token.totalSupply().mul(10).div(100));
+    pieChart[8] = PartInfo(30, false, token.totalSupply().mul(30).div(100));
   }
 
   // -----------------------------------------
   // Allocation external interface
   // -----------------------------------------
   /**
-   * @dev function for buying tokens
+   * Function for buying tokens
    */
   function() 
     external 
@@ -179,7 +173,7 @@ contract Allocation is Whitelist {
 
 
   /**
-   * @dev check if hard cap reached
+   * Check if hard cap reached
    */
   modifier hardCapNotReached() {
     require(
@@ -191,7 +185,7 @@ contract Allocation is Whitelist {
 
 
   /**
-   *  @dev check if value respects sale minimal contribution sum
+   *  Check if value respects sale minimal contribution sum
    */
   modifier respectContribution() {
     require(
@@ -203,46 +197,67 @@ contract Allocation is Whitelist {
 
 
   /**
-   * @dev check if sale is still open
+   * Check if sale is still open
    */
   modifier onlyWhileOpen {
-    require(!isFinalized, "PrivateSale is closed");
+    require(!isFinalized, "Sale is closed");
     _;
   }
 
   /**
-   * Owners Part 
+   * Check if sender is owner
    */
-
   modifier onlyOwner {
     require(isOwner(msg.sender) == true, "User is not in Owners");
     _;
   }
 
 
+  /**
+   * Add new owner
+   * @param _owner Address of owner which should be added
+   */
   function addOwner(address _owner) onlyOwner public {
     owners[_owner] = true;
   }
 
-
+  /**
+   * Delete an onwer
+   * @param _owner Address of owner which should be deleted
+   */
   function deleteOwner(address _owner) onlyOwner public {
     owners[_owner] = false;
   }
 
+  /**
+   * Check if sender is owner
+   * @param _address Address of owner which should be checked
+   */
   function isOwner(address _address) public view returns(bool res) {
     return owners[_address];
   }
   
+  /**
+   * Allocate tokens to all investors
+   */
   function allocateTokens() onlyOwner public {
     for (uint i = 0; i < investors.length; i++) {
       allocateTokensInternal(investors[i]);
     }
   }
 
+  /**
+   * Allocate tokens to a single investor
+   * @param _contributor Address of the investor
+   */
   function allocateTokensForContributor(address _contributor) onlyOwner public {
     allocateTokensInternal(_contributor);
   }
 
+  /**
+   * Allocates tokens to single investor
+   * @param _contributor Investor address
+   */
   function allocateTokensInternal(address _contributor) internal {
     uint256 weiAmount = contributors[_contributor];
 
@@ -262,15 +277,30 @@ contract Allocation is Whitelist {
     }
   }
   
+  /**
+   * Send funds from any part of pieChart
+   * @param _to Investors address
+   * @param _type Part of pieChart
+   * @param _amount Amount of tokens
+   */
+  function sendFunds(address _to, uint256 _type, uint256 _amount) onlyOwner public {
+    require(
+      pieChart[_type].amount >= _amount &&
+      _type >= 1 &&
+      _type <= 8
+    );
 
-  function sendFunds(address _to, uint256 _type, uint256 amount) onlyOwner public {
-    require(pieChart[_type].amount >= amount);
-    _sendToVesting(_to, amount);
-    pieChart[_type].amount -= amount;
+    if (pieChart[_type].lockup == true) {
+      _sendToVesting(_to, _amount);
+    } else {
+      token.transfer(_to, _amount);
+    }
+    
+    pieChart[_type].amount -= _amount;
   }
 
   /**
-   * @dev low level token purchase ***DO NOT OVERRIDE***
+   * Investment receiver
    * @param _beneficiary Address performing the token purchase
    */
   function buyTokens(address _beneficiary) public payable {
@@ -284,9 +314,8 @@ contract Allocation is Whitelist {
     // update state
     weiRaised = weiRaised.add(weiAmount);
 
+    // update 
     contributors[_beneficiary] += weiRaised;
-
-    pieChart[8].amount = pieChart[8].amount.sub(tokens);
 
     if(!isInvestor[_beneficiary]){
       investors.push(_beneficiary);
@@ -309,7 +338,7 @@ contract Allocation is Whitelist {
   // Internal interface (extensible)
   // -----------------------------------------
   /**
-   * @dev Validation of an incoming purchase. Use require statements to revert state when conditions are not met. Use super to concatenate validations.
+   * Validation of an incoming purchase. Use require statements to revert state when conditions are not met. Use super to concatenate validations.
    * @param _beneficiary Address performing the token purchase
    * @param _weiAmount Value in wei involved in the purchase
    */
@@ -331,7 +360,7 @@ contract Allocation is Whitelist {
 
 
   /**
-   * @dev Validation of an executed purchase. Observe state and use revert statements to undo rollback when valid conditions are not met.
+   * Validation of an executed purchase. Observe state and use revert statements to undo rollback when valid conditions are not met.
    * @param _beneficiary Address performing the token purchase
    * @param _weiAmount Value in wei involved in the purchase
    */
@@ -347,7 +376,7 @@ contract Allocation is Whitelist {
 
 
   /**
-   * @dev Create vesting contract
+   * Create vesting contract
    * @param _beneficiary address of person who will get all tokens as vesting ends
    * @param _tokens amount of vested tokens
    */
@@ -376,14 +405,14 @@ contract Allocation is Whitelist {
 
 
   /**
-   *  @dev checks if sale is closed
+   *  checks if sale is closed
    */
   function hasClosed() public view returns (bool) {
     return isFinalized;
   }
 
   /** 
-   * @dev Release tokens from vesting contract
+   * Release tokens from vesting contract
    */
   function releaseVestedTokens() 
     public
@@ -398,7 +427,7 @@ contract Allocation is Whitelist {
 
 
   /**
-   * @dev Executed when a purchase has been validated and is ready to be executed. Not necessarily emits/sends tokens.
+   * Executed when a purchase has been validated and is ready to be executed. Not necessarily emits/sends tokens.
    * @param _beneficiary Address receiving the tokens
    * @param _tokenAmount Number of tokens to be purchased
    */
@@ -413,7 +442,7 @@ contract Allocation is Whitelist {
 
 
   /**
-   * @dev Override for extensions that require an internal state to check for validity (current user contributions, etc.)
+   * Override for extensions that require an internal state to check for validity (current user contributions, etc.)
    * @param _beneficiary Address receiving the tokens
    * @param _weiAmount Value in wei involved in the purchase
    */
@@ -429,7 +458,7 @@ contract Allocation is Whitelist {
 
 
   /**
-   * @dev Override to extend the way in which ether is converted to tokens.
+   * Override to extend the way in which ether is converted to tokens.
    * @param _weiAmount Value in wei to be converted into tokens
    * @return Number of tokens that can be purchased with the specified _weiAmount
    */
@@ -478,15 +507,15 @@ contract Allocation is Whitelist {
   }
 
   /**
-   * @dev Determines how ETH is stored/forwarded on purchases.
+   * Determines how ETH is stored/forwarded on purchases.
    */
   function _forwardFunds() internal {
     wallet.transfer(msg.value);
   }
 
 
-   /**
-   * @dev Must be called after sale ends, to do some extra finalization
+  /**
+   * Must be called after sale ends, to do some extra finalization
    * work. Calls the contract's finalization function.
    */
   function finalize() onlyOwner public {
@@ -499,7 +528,7 @@ contract Allocation is Whitelist {
 
 
   /**
-   * @dev Can be overridden to add finalization logic. The overriding function
+   * Can be overridden to add finalization logic. The overriding function
    * should call super.finalization() to ensure the chain of finalization is
    * executed entirely.
    */
