@@ -114,14 +114,18 @@ contract TokenVesting is Ownable {
     uint256 currentBalance = token.balanceOf(this);
     uint256 totalBalance = currentBalance.add(released[token]);
 
-    if (block.timestamp < start.add(firstStage)) {
-      return 0;
-    } else if (block.timestamp >= start.add(duration) || revoked[token]) {
+    if (block.timestamp >= start.add(duration) || revoked[token]) {
       return totalBalance;
-    } else if(block.timestamp >= start.add(firstStage) && block.timestamp <= start.add(secondStage)){
+    } 
+
+    if(block.timestamp >= start.add(firstStage) && block.timestamp <= start.add(secondStage)){
       return totalBalance.div(3);
-    } else if(block.timestamp >= start.add(secondStage) && block.timestamp <= start.add(duration)){
+    }
+
+    if(block.timestamp >= start.add(secondStage) && block.timestamp <= start.add(duration)){
       return totalBalance.div(3).mul(2);
     }
+
+    return 0;
   }
 }
