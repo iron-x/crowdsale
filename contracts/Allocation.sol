@@ -1,6 +1,5 @@
 pragma solidity ^0.4.24;
 
-import "openzeppelin-solidity/contracts/token/ERC20/SafeERC20.sol";
 import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
 import "./Percent.sol";
 import "./Token.sol";
@@ -15,7 +14,6 @@ import "./TokenVesting.sol";
 contract Allocation is Whitelist {
   using SafeMath for uint256;
   using Percent for uint256;
-  using SafeERC20 for Token;
 
   /**
    * Event for token purchase logging
@@ -171,19 +169,6 @@ contract Allocation is Whitelist {
     buyTokens(msg.sender);
   }
 
-
-  /**
-   * Check if hard cap reached
-   */
-  modifier hardCapNotReached() {
-    require(
-      weiRaised <= hardCap,
-      "Hard cap is reached"
-    );
-    _;
-  }
-
-
   /**
    *  Check if value respects sale minimal contribution sum
    */
@@ -319,6 +304,7 @@ contract Allocation is Whitelist {
 
     if(!isInvestor[_beneficiary]){
       investors.push(_beneficiary);
+      isInvestor[_beneficiary] = true;
     }
 
     // _sendToVesting(_beneficiary, tokens);
@@ -350,7 +336,6 @@ contract Allocation is Whitelist {
     onlyIfWhitelisted(_beneficiary)
     respectContribution
     onlyWhileOpen
-    hardCapNotReached
     view
     internal
   {
@@ -418,7 +403,6 @@ contract Allocation is Whitelist {
     public
   {
     address beneficiary = msg.sender;
-    require(beneficiary != address(0));
     require(vesting[beneficiary] != address(0));
 
     TokenVesting tokenVesting = vesting[beneficiary];
@@ -519,7 +503,6 @@ contract Allocation is Whitelist {
    * work. Calls the contract's finalization function.
    */
   function finalize() onlyOwner public {
-    require(!isFinalized);
     require(!hasClosed());
     finalization();
     isFinalized = true;
