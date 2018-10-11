@@ -1,6 +1,5 @@
 pragma solidity ^0.4.24;
 
-import "openzeppelin-solidity/contracts/token/ERC20/SafeERC20.sol";
 import "openzeppelin-solidity/contracts/ownership/Ownable.sol";
 import "openzeppelin-solidity/contracts/math/SafeMath.sol";
 import "./Token.sol";
@@ -13,7 +12,6 @@ import "./Token.sol";
  */
 contract TokenVesting is Ownable {
   using SafeMath for uint256;
-  using SafeERC20 for ERC20;
 
   // Token release event, emits once owner releasing his tokens 
   event Released(uint256 amount);
