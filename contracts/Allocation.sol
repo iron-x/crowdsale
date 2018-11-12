@@ -1,4 +1,4 @@
-pragma solidity ^0.4.24;
+pragma solidity 0.4.24;
 
 import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
 import "./Percent.sol";
@@ -51,11 +51,11 @@ contract Allocation is Whitelist {
     uint256 amount;
   }
 
-  mapping (address => bool) owners;
-  mapping (address => uint256) contributors;            
+  mapping (address => bool) public owners;
+  mapping (address => uint256) public contributors;            
   mapping (address => TokenVesting) public vesting;
-  mapping (uint256 => PartInfo) pieChart;
-  mapping (address => bool) isInvestor;
+  mapping (uint256 => PartInfo) public pieChart;
+  mapping (address => bool) public isInvestor;
   
   address[] public investors;
 
@@ -202,7 +202,8 @@ contract Allocation is Whitelist {
    * Add new owner
    * @param _owner Address of owner which should be added
    */
-  function addOwner(address _owner) onlyOwner public {
+  function addOwner(address _owner) public onlyOwner {
+    require(owners[_owner] == false);
     owners[_owner] = true;
   }
 
@@ -210,7 +211,8 @@ contract Allocation is Whitelist {
    * Delete an onwer
    * @param _owner Address of owner which should be deleted
    */
-  function deleteOwner(address _owner) onlyOwner public {
+  function deleteOwner(address _owner) public onlyOwner {
+    require(owners[_owner] == true);
     owners[_owner] = false;
   }
 
@@ -223,11 +225,13 @@ contract Allocation is Whitelist {
   }
   
   /**
-   * Allocate tokens to all investors
+   * Allocate tokens to provided investors
    */
-  function allocateTokens() onlyOwner public {
-    for (uint i = 0; i < investors.length; i++) {
-      allocateTokensInternal(investors[i]);
+  function allocateTokens(address[] _investors) public onlyOwner {
+    require(_investors.length <= 50);
+    
+    for (uint i = 0; i < _investors.length; i++) {
+      allocateTokensInternal(_investors[i]);
     }
   }
 
@@ -235,11 +239,11 @@ contract Allocation is Whitelist {
    * Allocate tokens to a single investor
    * @param _contributor Address of the investor
    */
-  function allocateTokensForContributor(address _contributor) onlyOwner public {
+  function allocateTokensForContributor(address _contributor) public onlyOwner {
     allocateTokensInternal(_contributor);
   }
 
-  /**
+  /*
    * Allocates tokens to single investor
    * @param _contributor Investor address
    */
@@ -253,8 +257,10 @@ contract Allocation is Whitelist {
       pieChart[8].amount = pieChart[8].amount.sub(tokens);
       pieChart[1].amount = pieChart[1].amount.sub(bonusTokens);
 
+      contributors[_contributor] = 0;
+
       token.transfer(_contributor, tokens);
-      _sendToVesting(_contributor, bonusTokens);
+      createTimeBasedVesting(_contributor, bonusTokens);
 
       _forwardFunds();
 
@@ -268,7 +274,7 @@ contract Allocation is Whitelist {
    * @param _type Part of pieChart
    * @param _amount Amount of tokens
    */
-  function sendFunds(address _to, uint256 _type, uint256 _amount) onlyOwner public {
+  function sendFunds(address _to, uint256 _type, uint256 _amount) public onlyOwner {
     require(
       pieChart[_type].amount >= _amount &&
       _type >= 1 &&
@@ -276,7 +282,7 @@ contract Allocation is Whitelist {
     );
 
     if (pieChart[_type].lockup == true) {
-      _sendToVesting(_to, _amount);
+      createTimeBasedVesting(_to, _amount);
     } else {
       token.transfer(_to, _amount);
     }
@@ -300,16 +306,12 @@ contract Allocation is Whitelist {
     weiRaised = weiRaised.add(weiAmount);
 
     // update 
-    contributors[_beneficiary] += weiRaised;
+    contributors[_beneficiary] += weiAmount;
 
     if(!isInvestor[_beneficiary]){
       investors.push(_beneficiary);
       isInvestor[_beneficiary] = true;
     }
-
-    // _sendToVesting(_beneficiary, tokens);
-
-    // _forwardFunds();
 
     emit TokenPurchase(
       msg.sender,
@@ -342,23 +344,6 @@ contract Allocation is Whitelist {
     require(weiRaised.add(_weiAmount) <= hardCap);
     require(_beneficiary != address(0));
   }
-
-
-  /**
-   * Validation of an executed purchase. Observe state and use revert statements to undo rollback when valid conditions are not met.
-   * @param _beneficiary Address performing the token purchase
-   * @param _weiAmount Value in wei involved in the purchase
-   */
-  function _postValidatePurchase(
-    address _beneficiary,
-    uint256 _weiAmount
-  )
-    pure
-    internal
-  {
-    // optional override
-  }
-
 
   /**
    * Create vesting contract
@@ -399,47 +384,13 @@ contract Allocation is Whitelist {
   /** 
    * Release tokens from vesting contract
    */
-  function releaseVestedTokens() 
-    public
-  {
+  function releaseVestedTokens() public {
     address beneficiary = msg.sender;
     require(vesting[beneficiary] != address(0));
 
     TokenVesting tokenVesting = vesting[beneficiary];
     tokenVesting.release(token);
   }
-
-
-  /**
-   * Executed when a purchase has been validated and is ready to be executed. Not necessarily emits/sends tokens.
-   * @param _beneficiary Address receiving the tokens
-   * @param _tokenAmount Number of tokens to be purchased
-   */
-  function _sendToVesting(
-    address _beneficiary,
-    uint256 _tokenAmount
-  )
-    internal
-  {
-     createTimeBasedVesting(_beneficiary, _tokenAmount);
-  }
-
-
-  /**
-   * Override for extensions that require an internal state to check for validity (current user contributions, etc.)
-   * @param _beneficiary Address receiving the tokens
-   * @param _weiAmount Value in wei involved in the purchase
-   */
-  function _updatePurchasingState(
-    address _beneficiary,
-    uint256 _weiAmount
-  )
-    pure
-    internal
-  {
-    // optional override
-  }
-
 
   /**
    * Override to extend the way in which ether is converted to tokens.
@@ -502,7 +453,7 @@ contract Allocation is Whitelist {
    * Must be called after sale ends, to do some extra finalization
    * work. Calls the contract's finalization function.
    */
-  function finalize() onlyOwner public {
+  function finalize() public onlyOwner {
     require(!hasClosed());
     finalization();
     isFinalized = true;

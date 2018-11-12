@@ -1,4 +1,4 @@
-pragma solidity ^0.4.24;
+pragma solidity 0.4.24;
 
 import "openzeppelin-solidity/contracts/token/ERC20/StandardToken.sol";
 import "openzeppelin-solidity/contracts/ownership/Ownable.sol";
@@ -12,7 +12,7 @@ contract Token is StandardToken, Ownable {
   uint256 public decimals;
   string public name;
   string public symbol;
-  uint256 releasedAmount = 0;
+  uint256 public releasedAmount = 0;
 
   constructor(uint256 _totalSupply, uint256 _decimals, string _name, string _symbol) public {
     require(_totalSupply > 0);

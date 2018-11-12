@@ -101,7 +101,9 @@ contract('Allocation', accounts => {
       assert.equal(events[0].args.beneficiary, outsider);
       assert.equal(events[0].args.value, smaller_sum);
       assert.equal(events[0].args.amount, smaller_sum * rate);
-      await allocation.allocateTokens({from: outsider}).should.be.rejectedWith("revert");
+      let investors = [await allocation.investors(1)];
+
+      await allocation.allocateTokens(investors, {from: outsider}).should.be.rejectedWith("revert");
     });
 
     it('should succesfuly allocate tokens', async function() {
@@ -119,7 +121,8 @@ contract('Allocation', accounts => {
       assert.equal(events[0].args.beneficiary, outsider);
       assert.equal(events[0].args.value, weiAmount);
       assert.equal(events[0].args.amount, weiAmount * rate);
-      tx = await allocation.allocateTokens();
+      let investors = [wallet, outsider];
+      tx = await allocation.allocateTokens(investors);
       events = tx.logs.filter(l => l.event === 'TimeVestingCreation');
       assert.equal(events[0].args.beneficiary, wallet);
       assert.equal(events[1].args.beneficiary, outsider);
