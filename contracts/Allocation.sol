@@ -227,11 +227,12 @@ contract Allocation is Whitelist {
   /**
    * Allocate tokens to provided investors
    */
-  function allocateTokens(address[] _investors) public onlyOwner {
+  function allocateTokens(address[] _investors, uint[] _start) public onlyOwner {
     require(_investors.length <= 50);
+    require(_start.length == _investors.length);
     
     for (uint i = 0; i < _investors.length; i++) {
-      allocateTokensInternal(_investors[i]);
+      allocateTokensInternal(_investors[i], _start[i]);
     }
   }
 
