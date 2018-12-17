@@ -239,15 +239,15 @@ contract Allocation is Whitelist {
    * Allocate tokens to a single investor
    * @param _contributor Address of the investor
    */
-  function allocateTokensForContributor(address _contributor) public onlyOwner {
-    allocateTokensInternal(_contributor);
+  function allocateTokensForContributor(address _contributor, uint _start) public onlyOwner {
+    allocateTokensInternal(_contributor, _start);
   }
 
   /*
    * Allocates tokens to single investor
    * @param _contributor Investor address
    */
-  function allocateTokensInternal(address _contributor) internal {
+  function allocateTokensInternal(address _contributor, uint _start) internal {
     uint256 weiAmount = contributors[_contributor];
 
     if (weiAmount > 0) {
@@ -260,7 +260,7 @@ contract Allocation is Whitelist {
       contributors[_contributor] = 0;
 
       token.transfer(_contributor, tokens);
-      createTimeBasedVesting(_contributor, bonusTokens);
+      createTimeBasedVesting(_contributor, bonusTokens, _start);
 
       _forwardFunds();
 
@@ -274,7 +274,7 @@ contract Allocation is Whitelist {
    * @param _type Part of pieChart
    * @param _amount Amount of tokens
    */
-  function sendFunds(address _to, uint256 _type, uint256 _amount) public onlyOwner {
+  function sendFunds(address _to, uint256 _type, uint256 _amount, uint _start) public onlyOwner {
     require(
       pieChart[_type].amount >= _amount &&
       _type >= 1 &&
@@ -282,7 +282,7 @@ contract Allocation is Whitelist {
     );
 
     if (pieChart[_type].lockup == true) {
-      createTimeBasedVesting(_to, _amount);
+      createTimeBasedVesting(_to, _amount, _start);
     } else {
       token.transfer(_to, _amount);
     }
@@ -353,11 +353,16 @@ contract Allocation is Whitelist {
   function createTimeBasedVesting
   (
     address _beneficiary,
-    uint256 _tokens
+    uint256 _tokens,
+    uint _start
   )
     internal
   {
-    uint256 _start = block.timestamp;
+    require (_start >= 1544832000); // 15.12.2018
+    
+    if(_start == 0) {
+     _start = block.timestamp;
+    }
 
     TokenVesting tokenVesting;
 
