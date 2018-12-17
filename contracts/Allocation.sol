@@ -358,7 +358,7 @@ contract Allocation is Whitelist {
   )
     internal
   {
-    require (_start >= 1544832000); // 15.12.2018
+    require (_start >= 1544832000 || _start == 0); // 15.12.2018
     
     if(_start == 0) {
      _start = block.timestamp;
